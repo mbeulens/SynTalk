@@ -29,6 +29,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
         self._engine = Engine()
         self._voices: list[Voice] = discover()
         self._playback = None
+        self._busy = False
         self._rows: dict[Gtk.ListBoxRow, Voice] = {}
 
         self._toasts = Adw.ToastOverlay()
@@ -125,11 +126,20 @@ class SynTalkWindow(Adw.ApplicationWindow):
         self._play.add_css_class("suggested-action")
         self._play.connect("clicked", self._on_play_clicked)
 
+        self._next_speaker = Gtk.Button()
+        self._next_speaker.set_child(Adw.ButtonContent(
+            label="Next speaker", icon_name="media-skip-forward-symbolic"))
+        self._next_speaker.set_tooltip_text(
+            "Select the next speaker and play the current text again")
+        self._next_speaker.set_visible(False)
+        self._next_speaker.connect("clicked", self._on_next_speaker_clicked)
+
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         controls.append(Gtk.Label(label="Effect"))
         controls.append(self._effect_drop)
         controls.append(Gtk.Label(label="Speed"))
         controls.append(self._speed)
+        controls.append(self._next_speaker)
         controls.append(self._play)
 
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
@@ -173,6 +183,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
             return
         multi = voice.is_multi_speaker
         self._speaker_group.set_visible(multi)
+        self._next_speaker.set_visible(multi)
         if multi:
             self._speaker_row.set_range(0, voice.num_speakers - 1)
             self._speaker_row.set_value(0)
@@ -181,8 +192,8 @@ class SynTalkWindow(Adw.ApplicationWindow):
         effect = self._selected_effect()
         if effect is None:
             return
-        # Visible, undoable: the preset's own voice and speed are applied.
-        self._select_voice_key(effect.voice_key)
+        # The filter chain applies to whatever voice the user has selected;
+        # an effect only ever touches the speed slider, never the sidebar.
         self._speed.set_value(effect.length_scale)
 
     def _text(self) -> str:
@@ -199,15 +210,38 @@ class SynTalkWindow(Adw.ApplicationWindow):
         return True
 
     def _on_play_clicked(self, _button) -> None:
+        # _busy is the single source of truth for "a worker is in flight" —
+        # unlike button sensitivity, a Gtk.ShortcutController does not
+        # consult it, so Ctrl+Return during synthesis must check it too.
+        if self._busy:
+            return
         if self._playback is not None:
             # Playback.stop() blocks until both children are reaped (up to 10s
             # each on a hung ALSA device). Never run that on the UI thread.
             # The worker's playback.wait() returns once they die and drives
-            # _playback_finished, which clears state and re-enables the button.
+            # _playback_finished, which clears _busy and restores the button.
+            self._busy = True
             self._play.set_sensitive(False)
             threading.Thread(target=self._playback.stop, daemon=True).start()
             return
+        self._start_playback()
 
+    def _on_next_speaker_clicked(self, _button) -> None:
+        if self._busy or self._playback is not None:
+            return
+        voice = self._selected_voice()
+        if voice is None or not voice.is_multi_speaker:
+            return
+        if not self._text().strip():
+            return
+        next_id = (int(self._speaker_row.get_value()) + 1) % voice.num_speakers
+        self._speaker_row.set_value(next_id)
+        self._start_playback()
+
+    def _start_playback(self) -> None:
+        """Gather every widget value on the main loop, mark busy, and hand
+        off to a worker thread. Shared by Play and Next-speaker so the two
+        entry points can never diverge."""
         voice = self._selected_voice()
         text = self._text()
         if voice is None or not text.strip():
@@ -217,7 +251,9 @@ class SynTalkWindow(Adw.ApplicationWindow):
         speaker_id = (int(self._speaker_row.get_value())
                       if voice.is_multi_speaker else None)
 
+        self._busy = True
         self._play.set_sensitive(False)
+        self._next_speaker.set_sensitive(False)
         threading.Thread(
             target=self._play_worker,
             args=(voice, text, self._speed.get_value(), speaker_id, effect),
@@ -244,23 +280,33 @@ class SynTalkWindow(Adw.ApplicationWindow):
         playback.wait()
         GLib.idle_add(self._playback_finished)
 
+    def _set_play_button(self, label: str, icon_name: str) -> None:
+        self._play.set_child(Adw.ButtonContent(label=label, icon_name=icon_name))
+
     def _playback_started(self, playback) -> bool:
         self._playback = playback
-        self._play.set_child(Adw.ButtonContent(
-            label="Stop", icon_name="media-playback-stop-symbolic"))
+        self._busy = False
+        self._set_play_button("Stop", "media-playback-stop-symbolic")
         self._play.set_sensitive(True)
+        # Next-speaker stays insensitive for the whole playback, not just
+        # the busy window: it would otherwise let a second worker start
+        # while the first is still audible.
         return GLib.SOURCE_REMOVE
 
     def _playback_finished(self) -> bool:
         self._playback = None
-        self._play.set_child(Adw.ButtonContent(
-            label="Play", icon_name="media-playback-start-symbolic"))
+        self._busy = False
+        self._set_play_button("Play", "media-playback-start-symbolic")
         self._play.set_sensitive(True)
+        self._next_speaker.set_sensitive(True)
         return GLib.SOURCE_REMOVE
 
     def _playback_failed(self, message: str) -> bool:
         self._playback = None
+        self._busy = False
+        self._set_play_button("Play", "media-playback-start-symbolic")
         self._play.set_sensitive(True)
+        self._next_speaker.set_sensitive(True)
         self._toast(message)
         return GLib.SOURCE_REMOVE
 
