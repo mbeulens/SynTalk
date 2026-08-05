@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Neural text-to-speech via Piper. Speaks its arguments, or stdin if none.
+#
+#   say "hello there"
+#   echo "hello there" | say
+#   say -v nl_NL-pim-medium "goedemorgen"
+#   say -s 1.2 "a little slower"          # length-scale: >1 slower, <1 faster
+#   say -o out.wav "write to a file instead of the speakers"
+#   say -l                                 # list installed voices
+set -euo pipefail
+
+PIPER="$HOME/.local/share/piper-venv/bin/piper"
+VOICES="$HOME/.local/share/piper-voices"
+VOICE="${SAY_VOICE:-en_US-lessac-high}"
+SPEED=1.0
+OUT=""
+SPK=""
+
+while getopts ":v:s:o:n:lh" opt; do
+  case $opt in
+    v) VOICE="$OPTARG" ;;
+    s) SPEED="$OPTARG" ;;
+    n) SPK="$OPTARG" ;;
+    o) OUT="$OPTARG" ;;
+    l) for m in "$VOICES"/*.onnx; do
+         n=$(python3 -c "import json;print(json.load(open('$m.json')).get('num_speakers',1))")
+         printf '%-38s %s\n' "$(basename "$m" .onnx)" \
+           "$([[ $n -gt 1 ]] && echo "$n speakers (-n 0..$((n-1)))" || echo "single speaker")"
+       done; exit 0 ;;
+    h) sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *) echo "say: unknown option -$OPTARG" >&2; exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+MODEL="$VOICES/$VOICE.onnx"
+if [[ ! -f $MODEL ]]; then
+  echo "say: no voice '$VOICE'. Installed:" >&2
+  basename -s .onnx -a "$VOICES"/*.onnx >&2
+  exit 1
+fi
+
+if (($#)); then TEXT="$*"; else TEXT="$(cat)"; fi
+[[ -n ${TEXT//[[:space:]]/} ]] || exit 0
+
+SPKARG=()
+[[ -n $SPK ]] && SPKARG=(-s "$SPK")
+
+if [[ -n $OUT ]]; then
+  printf '%s' "$TEXT" | "$PIPER" -m "$MODEL" --length-scale "$SPEED" "${SPKARG[@]}" -f "$OUT"
+else
+  RATE=$(python3 -c "import json;print(json.load(open('$MODEL.json'))['audio']['sample_rate'])")
+  printf '%s' "$TEXT" \
+    | "$PIPER" -m "$MODEL" --length-scale "$SPEED" "${SPKARG[@]}" --output-raw \
+    | aplay -q -r "$RATE" -f S16_LE -t raw -
+fi

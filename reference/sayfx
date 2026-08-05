@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Piper TTS with character effects. Speaks its arguments, or stdin if none.
+#
+#   sayfx yoda "you must learn patience"
+#   sayfx robot "resistance is futile"
+#   sayfx -l                      # list presets
+#   sayfx -o out.wav demon "..."  # save instead of play
+#
+# Presets are ffmpeg filter chains -- edit FX below to invent your own.
+set -euo pipefail
+
+PIPER="$HOME/.local/share/piper-venv/bin/piper"
+VOICES="$HOME/.local/share/piper-voices"
+OUT=""
+
+# preset -> "piper-voice | length-scale | ffmpeg filter chain"
+# @SR@ is replaced with the voice's sample rate.
+declare -A FX=(
+  [yoda]="en_GB-alan-medium|1.45|asetrate=@SR@*1.22,aresample=@SR@,atempo=0.82,vibrato=f=6:d=0.35,aecho=0.8:0.7:22:0.18"
+  [robot]="en_US-lessac-high|1.0|asetrate=@SR@*0.92,aresample=@SR@,atempo=1.09,flanger=delay=6:depth=4:speed=1.2,aecho=0.9:0.85:12:0.5,acompressor"
+  [chipmunk]="en_US-lessac-high|0.92|asetrate=@SR@*1.55,aresample=@SR@,atempo=0.68"
+  [demon]="en_US-lessac-high|1.25|asetrate=@SR@*0.62,aresample=@SR@,atempo=1.55,aecho=0.9:0.9:180:0.4,acompressor"
+  [giant]="en_GB-alan-medium|1.35|asetrate=@SR@*0.74,aresample=@SR@,atempo=1.3,aecho=0.9:0.88:320:0.45"
+  [ghost]="en_GB-cori-high|1.3|asetrate=@SR@*0.96,aresample=@SR@,atempo=1.04,chorus=0.6:0.9:55:0.4:0.25:2,aecho=0.9:0.9:480:0.6,highpass=f=180"
+  [radio]="en_US-lessac-high|1.0|highpass=f=500,lowpass=f=2600,acrusher=bits=10:mode=log,volume=1.4"
+  [drunk]="en_US-lessac-high|1.32|vibrato=f=2.4:d=0.7,atempo=0.95,aecho=0.7:0.6:60:0.2"
+  [announcer]="en_US-lessac-high|1.08|asetrate=@SR@*0.9,aresample=@SR@,atempo=1.11,aecho=0.85:0.75:240:0.3,acompressor,volume=1.3"
+  [tiny]="en_GB-cori-high|0.95|asetrate=@SR@*1.32,aresample=@SR@,atempo=0.8,highpass=f=400"
+)
+
+while getopts ":o:lh" opt; do
+  case $opt in
+    o) OUT="$OPTARG" ;;
+    l) printf '%s\n' "${!FX[@]}" | sort; exit 0 ;;
+    h) sed -n '2,8p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *) echo "sayfx: unknown option -$OPTARG" >&2; exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+PRESET="${1:-}"; shift || true
+if [[ -z ${FX[$PRESET]:-} ]]; then
+  echo "sayfx: unknown preset '${PRESET:-}'. Available:" >&2
+  printf '%s\n' "${!FX[@]}" | sort >&2
+  exit 1
+fi
+
+IFS='|' read -r VOICE SPEED CHAIN <<<"${FX[$PRESET]}"
+MODEL="$VOICES/$VOICE.onnx"
+[[ -f $MODEL ]] || { echo "sayfx: missing voice $VOICE -- download it first" >&2; exit 1; }
+
+if (($#)); then TEXT="$*"; else TEXT="$(cat)"; fi
+[[ -n ${TEXT//[[:space:]]/} ]] || exit 0
+
+# Yoda talks funny. Object-subject-verb, roughly: trailing clause moves to the front.
+if [[ $PRESET == yoda ]]; then
+  TEXT=$(printf '%s' "$TEXT" | python3 -c '
+import re, sys
+def yoda(s):
+    w = s.split()
+    if len(w) < 4: return s
+    return " ".join(w[len(w)//2:]) + ", " + " ".join(w[:len(w)//2]) + ", yes"
+print(". ".join(yoda(p.strip()) for p in re.split(r"[.!?]+", sys.stdin.read()) if p.strip()))')
+fi
+
+RATE=$(python3 -c "import json;print(json.load(open('$MODEL.json'))['audio']['sample_rate'])")
+CHAIN=${CHAIN//@SR@/$RATE}
+
+RAW=$(mktemp --suffix=.wav)
+trap 'rm -f "$RAW"' EXIT
+printf '%s' "$TEXT" | "$PIPER" -m "$MODEL" --length-scale "$SPEED" -f "$RAW" >/dev/null 2>&1
+
+if [[ -n $OUT ]]; then
+  ffmpeg -v error -y -i "$RAW" -af "$CHAIN" "$OUT"
+else
+  ffmpeg -v error -i "$RAW" -af "$CHAIN" -f wav - | aplay -q -
+fi
