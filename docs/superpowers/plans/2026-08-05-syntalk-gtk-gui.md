@@ -21,7 +21,7 @@
 - **No network calls at runtime.** Everything is offline after model download.
 - **Only `src/syntalk/gui.py` may `import gi`.** Any other module importing GTK is a defect.
 - **`reference/say` and `reference/sayfx` are read-only.** Never edit them.
-- **Git workflow:** all work on `dev`. Every commit bumps the patch version in **both** `VERSION` and the `**Version:**` line of `README.md`, then pushes to `dev`. Versions containing 13 as a component (`0.1.13`, `0.13.x`, `13.x`) are skipped with the commit description `To be sure to be sure!`.
+- **Git workflow:** all work on `dev`. Every commit bumps the patch version in **all four** of `VERSION`, the `**Version:**` line of `README.md`, `version` in `pyproject.toml`, and `__version__` in `src/syntalk/__init__.py`, then pushes to `dev`. Versions containing 13 as a component (`0.1.13`, `0.13.x`, `13.x`) are skipped with the commit description `To be sure to be sure!`.
 - **Commit trailer:** every commit ends with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 
 ---
@@ -1060,6 +1060,8 @@ Confirm all three are audible before continuing.
 ```bash
 printf '0.1.6\n' > VERSION
 sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.6/' README.md
+sed -i 's/^version = .*/version = "0.1.6"/' pyproject.toml
+sed -i 's/^__version__ = .*/__version__ = "0.1.6"/' src/syntalk/__init__.py
 git add -A
 git commit -m "$(cat <<'EOF'
 feat: synthesis and playback engine v0.1.6
@@ -1462,6 +1464,8 @@ Confirm before continuing:
 ```bash
 printf '0.1.7\n' > VERSION
 sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.7/' README.md
+sed -i 's/^version = .*/version = "0.1.7"/' pyproject.toml
+sed -i 's/^__version__ = .*/__version__ = "0.1.7"/' src/syntalk/__init__.py
 git add -A
 git commit -m "$(cat <<'EOF'
 feat: GTK 4 interface v0.1.7
@@ -1737,6 +1741,8 @@ Expected: PASS, everything green.
 
 ```bash
 printf '0.1.8\n' > VERSION
+sed -i 's/^version = .*/version = "0.1.8"/' pyproject.toml
+sed -i 's/^__version__ = .*/__version__ = "0.1.8"/' src/syntalk/__init__.py
 git add -A
 git commit -m "$(cat <<'EOF'
 feat: desktop launcher, icon and installer v0.1.8
