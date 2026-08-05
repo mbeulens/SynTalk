@@ -803,10 +803,16 @@ def test_negative_speaker_id_raises():
         Engine().synthesize(_voice(num_speakers=4), "hello", speaker_id=-1)
 
 
-def test_playing_empty_pcm_returns_finished_playback():
-    playback = Engine().play(b"", 22050)
+def test_playing_empty_pcm_spawns_no_processes(monkeypatch):
+    def explode(*args, **kwargs):
+        raise AssertionError("no subprocess should be spawned for empty audio")
 
-    playback.wait()  # must not hang or raise
+    monkeypatch.setattr("syntalk.engine.subprocess.Popen", explode)
+
+    playback = Engine().play(b"", 22050)
+    playback.wait()
+
+    assert playback._procs == []
 
 
 def test_save_wav_without_effect_writes_valid_file(tmp_path):
