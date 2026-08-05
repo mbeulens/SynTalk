@@ -46,7 +46,9 @@ sed "s|^Exec=.*|Exec=$BIN|" "data/$APP_ID.desktop" > "$DESKTOP_DIR/$APP_ID.deskt
 cp "data/icons/hicolor/scalable/apps/$APP_ID.svg" "$ICON_DIR/$APP_ID.svg"
 
 if command -v update-desktop-database >/dev/null; then
-  update-desktop-database "$DESKTOP_DIR"
+  # A malformed *other* .desktop file in this directory can make this exit
+  # non-zero even though ours is fine; never let that abort the install.
+  update-desktop-database "$DESKTOP_DIR" || true
 else
   echo "   note: update-desktop-database absent, skipped"
 fi

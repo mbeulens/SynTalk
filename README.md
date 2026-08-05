@@ -49,7 +49,7 @@ languages are available.
 ## Development
 
 ```bash
-uv venv --system-site-packages --python 3.12
+uv venv --system-site-packages --python 3.12 --clear
 uv pip install -e . --group dev
 .venv/bin/pytest
 ```

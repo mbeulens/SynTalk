@@ -356,6 +356,11 @@ class SynTalkWindow(Adw.ApplicationWindow):
 
 class SynTalkApp(Adw.Application):
     def __init__(self) -> None:
+        # GTK derives WM_CLASS from the program name, not the application id.
+        # Setting it here keeps StartupWMClass in the .desktop entry matching
+        # the real running window, so GNOME can associate the two for
+        # taskbar grouping / "focus existing window".
+        GLib.set_prgname(APP_ID)
         super().__init__(application_id=APP_ID,
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
 
