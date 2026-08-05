@@ -171,8 +171,8 @@ class Engine:
 │   N.English GB    │  │  type anything here…               │   │
 │   VCTK      GB ¹⁰⁹│  │                                    │   │
 │   L2Arctic  US ²⁴ │  └────────────────────────────────────┘   │
-│   Nathalie  BE    │  Effect [None ▾]  Speed ──●──  [▶ Play]   │
-│   Pim       NL    │                                           │
+│   Nathalie  BE    │  Effect [None ▾] Speed ─●─ [⏭][▶ Play]   │
+│   Pim       NL    │            next-speaker ⏭ multi-spk only  │
 └───────────────────┴───────────────────────────────────────────┘
 ```
 
@@ -191,23 +191,33 @@ expanding to fill. `Ctrl+Return` triggers play.
 `Gtk.Scale` for speed (0.5–2.0, step 0.05, default 1.0, marked at 1.0), and the play
 button.
 
-**Effect ↔ voice coupling.** Selecting an effect other than `None` moves the sidebar
-selection to that preset's `voice_key` and sets the speed slider to the preset's
-`length_scale`. Both changes are visible in the UI — nothing is applied invisibly. The
-user may then pick a different voice or speed; the filter chain stays applied. Selecting
-`None` leaves voice and speed where they are.
+**Effect ↔ voice coupling — none.** Selecting an effect applies that preset's filter
+chain to **whatever voice the user has selected**, and sets the speed slider to the
+preset's `length_scale` (the speed is part of the effect's character). The sidebar
+selection is never changed by an effect. Revised 2026-08-06 after use: the original
+design moved the selection to the preset's tuned voice, which meant every effect change
+silently discarded the user's voice choice and forced them to reselect it.
 
 **Play button** — label `Play` with a play icon; while audio is running it becomes `Stop`
-with a stop icon and calls `Playback.stop()`. The button is insensitive while synthesis
-is in flight but before playback starts.
+with a stop icon and calls `Playback.stop()` on a worker thread.
+
+**Next-speaker button** — visible only when the selected voice is multi-speaker. Advances
+the speaker spinner by one, wrapping back to 0 past the last speaker, and immediately
+plays the current text with that speaker. This makes auditioning VCTK's 109 speakers a
+single repeated click rather than a spin-then-play cycle.
+
+**Busy guard.** A single `_busy` flag — not button sensitivity — gates every entry point
+into playback (Play button, next-speaker button, `Ctrl+Return`). Sensitivity is a view
+concern and keyboard shortcuts bypass it, so it cannot be the invariant.
 
 **Save WAV** — a header-bar button opening `Gtk.FileDialog`, writing the current text with
 the current settings via `Engine.save_wav`.
 
 **Threading.** Synthesis and playback run on a `threading.Thread`. All UI mutation is
-marshalled back with `GLib.idle_add`. The window never blocks. Exactly one playback is
-active at a time — the button is a Play/Stop toggle, so there is no path to starting a
-second one. `Ctrl+Return` during playback stops it, matching the button's current state.
+marshalled back with `GLib.idle_add`; worker threads never read or write a widget —
+`_on_save_chosen` snapshots every widget value on the main loop before spawning. Exactly
+one playback is active at a time, enforced by the `_busy` flag above. `Ctrl+Return`
+during playback stops it, matching the button's current state.
 
 **Empty state.** If `discover()` returns nothing, the split view is replaced by an
 `Adw.StatusPage` explaining where voices are expected and how to download one, and the
