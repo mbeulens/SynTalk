@@ -99,8 +99,11 @@ def find(key: str, voices: list[Voice]) -> Voice | None
 - `display_name` is derived from the key: strip the language prefix and the quality
   suffix, replace `_` with a space, title-case. `en_GB-northern_english_male-medium`
   becomes `Northern English Male`.
-- `language_label` comes from a small static map of the codes actually possible
-  (`en_GB`, `en_US`, `nl_NL`, `nl_BE`, …), falling back to the raw code when unknown.
+- `language_label` is built from the voice's own metadata —
+  `language.name_english` + `language.country_english`, giving
+  `English (Great Britain)`, `Dutch (Belgium)` and so on — falling back to
+  `language.code` when either field is absent. No static map, so voices downloaded
+  later label themselves correctly.
 - Sorting: by `language_label`, then `display_name`.
 
 ### 3.2 `effects.py`
