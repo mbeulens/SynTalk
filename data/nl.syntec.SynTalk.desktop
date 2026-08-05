@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=SynTalk
+GenericName=Text to Speech
+Comment=Local neural text-to-speech
+Exec=syntalk
+Icon=nl.syntec.SynTalk
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+Keywords=tts;speech;voice;piper;say;
+StartupNotify=true
+StartupWMClass=nl.syntec.SynTalk
