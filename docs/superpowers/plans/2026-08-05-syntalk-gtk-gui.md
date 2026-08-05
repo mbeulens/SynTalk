@@ -71,7 +71,7 @@ Create `pyproject.toml`:
 ```toml
 [project]
 name = "syntalk"
-version = "0.1.3"
+version = "0.1.4"
 description = "Local neural text-to-speech with a GTK 4 interface"
 requires-python = ">=3.12"
 dependencies = ["piper-tts>=1.6,<2"]
@@ -101,7 +101,7 @@ Create `src/syntalk/__init__.py`:
 ```python
 """SynTalk — local neural text-to-speech."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 ```
 
 - [ ] **Step 2: Create the venv and install**
@@ -418,11 +418,11 @@ Expected: all 8 installed voices, `VCTK` showing `spk=109` and `L2Arctic` `spk=2
 - [ ] **Step 9: Commit**
 
 ```bash
-printf '0.1.3\n' > VERSION
-sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.3/' README.md
+printf '0.1.4\n' > VERSION
+sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.4/' README.md
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: voice discovery and project scaffold v0.1.3
+feat: voice discovery and project scaffold v0.1.4
 
 Voice dataclass plus discover()/find() reading the .onnx.json sidecars.
 Language labels derived from voice metadata, no hardcoded map.
@@ -720,11 +720,11 @@ output, with `@SR@` replaced by `22050`.
 - [ ] **Step 6: Commit**
 
 ```bash
-printf '0.1.4\n' > VERSION
-sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.4/' README.md
+printf '0.1.5\n' > VERSION
+sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.5/' README.md
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: character effect presets v0.1.4
+feat: character effect presets v0.1.5
 
 Ten presets transcribed from reference/sayfx, with @SR@ substitution,
 atempo range splitting, and the yoda word-order rewrite.
@@ -1058,11 +1058,11 @@ Confirm all three are audible before continuing.
 - [ ] **Step 6: Commit**
 
 ```bash
-printf '0.1.5\n' > VERSION
-sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.5/' README.md
+printf '0.1.6\n' > VERSION
+sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.6/' README.md
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: synthesis and playback engine v0.1.5
+feat: synthesis and playback engine v0.1.6
 
 Model cache, PCM synthesis, ffmpeg effect pass over a stdin pipe rather
 than temp files, stoppable playback handle, WAV export.
@@ -1460,11 +1460,11 @@ Confirm before continuing:
 - [ ] **Step 6: Commit**
 
 ```bash
-printf '0.1.6\n' > VERSION
-sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.6/' README.md
+printf '0.1.7\n' > VERSION
+sed -i 's/^\*\*Version:\*\* .*/**Version:** 0.1.7/' README.md
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: GTK 4 interface v0.1.6
+feat: GTK 4 interface v0.1.7
 
 Adw.NavigationSplitView with a voice sidebar, large text field, effect
 dropdown, speed slider and a play/stop toggle. Synthesis runs off the
@@ -1647,7 +1647,7 @@ Replace the body of `README.md` with:
 ````markdown
 # SynTalk
 
-**Version:** 0.1.7
+**Version:** 0.1.8
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
@@ -1736,10 +1736,10 @@ Expected: PASS, everything green.
 - [ ] **Step 9: Commit**
 
 ```bash
-printf '0.1.7\n' > VERSION
+printf '0.1.8\n' > VERSION
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: desktop launcher, icon and installer v0.1.7
+feat: desktop launcher, icon and installer v0.1.8
 
 Speech-bubble SVG icon on the GNOME grid, validated .desktop entry, and
 an idempotent install.sh that builds the system-site-packages venv and
@@ -1758,7 +1758,7 @@ git push origin dev
 - `.venv/bin/pytest` green.
 - `grep -rln "import gi" src/syntalk/` returns only `gui.py`.
 - All 8 manual smoke-test steps pass, with the actual observed result reported.
-- `dev` pushed at 0.1.7.
+- `dev` pushed at 0.1.8.
 
 A minor bump to 0.2.0 (CHANGELOG.md, README update, merge `dev` → `master`) is a
 separate action, taken only when asked.
