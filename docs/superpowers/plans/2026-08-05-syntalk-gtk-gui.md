@@ -1295,7 +1295,12 @@ class SynTalkWindow(Adw.ApplicationWindow):
 
     def _on_play_clicked(self, _button) -> None:
         if self._playback is not None:
-            self._playback.stop()
+            # Playback.stop() blocks until both children are reaped (up to 10s
+            # each on a hung ALSA device). Never run that on the UI thread.
+            # The worker's playback.wait() returns once they die and drives
+            # _playback_finished, which clears state and re-enables the button.
+            self._play.set_sensitive(False)
+            threading.Thread(target=self._playback.stop, daemon=True).start()
             return
 
         voice = self._selected_voice()
