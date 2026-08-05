@@ -1,6 +1,6 @@
 # SynTalk
 
-**Version:** 0.1.8
+**Version:** 0.1.9
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
@@ -39,7 +39,7 @@ GNOME overview.
 ## Downloading more voices
 
 ```bash
-~/.local/share/piper-venv/bin/python -m piper.download_voices \
+.venv/bin/python -m piper.download_voices \
   --data-dir ~/.local/share/piper-voices en_US-ryan-high
 ```
 

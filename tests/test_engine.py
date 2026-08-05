@@ -1,3 +1,5 @@
+import shutil
+import time
 import wave
 from pathlib import Path
 
@@ -67,3 +69,24 @@ def test_missing_tool_raises_engine_error(monkeypatch, tmp_path):
 
     with pytest.raises(EngineError, match="ffmpeg"):
         Engine().save_wav(SILENCE, 22050, tmp_path / "x.wav", chain="volume=1.0")
+
+
+def test_wait_blocks_for_the_full_duration_of_long_playback():
+    """Regression for the bug that SIGKILLed every utterance past 10s:
+    Playback.wait() must not impose the 10s deadline that belongs only to
+    stop(). 15s of silence must play to natural completion, returning well
+    past 10s with returncode 0 -- not killed at the old fixed timeout."""
+    if shutil.which("aplay") is None:
+        pytest.skip("aplay not installed")
+
+    seconds = 15
+    rate = 22050
+    pcm = b"\x00\x00" * rate * seconds
+
+    playback = Engine().play(pcm, rate)
+    started = time.monotonic()
+    playback.wait()
+    elapsed = time.monotonic() - started
+
+    assert elapsed > 14, f"wait() returned after only {elapsed:.1f}s"
+    assert playback._procs[0].returncode == 0

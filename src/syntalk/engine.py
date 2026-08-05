@@ -44,12 +44,20 @@ class Playback:
         for proc in reversed(self._procs):
             if proc.poll() is None:
                 proc.terminate()
-        self.wait()
+        # Bound only the stop path: a wedged ALSA device must not hang the
+        # UI forever. Natural completion (wait()) must never impose this
+        # deadline -- see _reap().
+        self._reap(timeout=10)
 
     def wait(self) -> None:
+        """Block until playback finishes on its own. No deadline: audio
+        longer than any fixed timeout must still play to completion."""
+        self._reap()
+
+    def _reap(self, timeout: float | None = None) -> None:
         for proc in self._procs:
             try:
-                proc.wait(timeout=10)
+                proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()

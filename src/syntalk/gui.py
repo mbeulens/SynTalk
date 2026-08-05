@@ -11,10 +11,9 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-from . import __version__  # noqa: E402
 from .effects import EFFECTS, apply_text_rewrite, filter_chain  # noqa: E402
 from .engine import Engine, EngineError  # noqa: E402
-from .voices import Voice, discover, find  # noqa: E402
+from .voices import Voice, discover  # noqa: E402
 
 APP_ID = "nl.syntec.SynTalk"
 
@@ -30,6 +29,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
         self._voices: list[Voice] = discover()
         self._playback = None
         self._busy = False
+        self._saving = False
         self._rows: dict[Gtk.ListBoxRow, Voice] = {}
 
         self._toasts = Adw.ToastOverlay()
@@ -52,7 +52,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
                 "SynTalk looks for Piper voice models in\n"
                 "~/.local/share/piper-voices\n\n"
                 "Download one with:\n"
-                "~/.local/share/piper-venv/bin/python -m piper.download_voices "
+                ".venv/bin/python -m piper.download_voices "
                 "--data-dir ~/.local/share/piper-voices en_US-lessac-high"
             ),
         )
@@ -91,10 +91,10 @@ class SynTalkWindow(Adw.ApplicationWindow):
 
     def _build_content(self) -> Adw.NavigationPage:
         header = Adw.HeaderBar()
-        save = Gtk.Button(icon_name="document-save-symbolic",
-                          tooltip_text="Save as WAV")
-        save.connect("clicked", self._on_save)
-        header.pack_end(save)
+        self._save_button = Gtk.Button(icon_name="document-save-symbolic",
+                                       tooltip_text="Save as WAV")
+        self._save_button.connect("clicked", self._on_save)
+        header.pack_end(self._save_button)
 
         self._speaker_row = Adw.SpinRow.new_with_range(0, 0, 1)
         self._speaker_row.set_title("Speaker")
@@ -119,6 +119,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
         self._speed.set_value(1.0)
         self._speed.set_hexpand(True)
         self._speed.add_mark(1.0, Gtk.PositionType.BOTTOM, None)
+        self._speed.set_tooltip_text("Higher is slower (Piper length scale)")
 
         self._play = Gtk.Button()
         self._play.set_child(Adw.ButtonContent(label="Play",
@@ -137,7 +138,9 @@ class SynTalkWindow(Adw.ApplicationWindow):
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         controls.append(Gtk.Label(label="Effect"))
         controls.append(self._effect_drop)
-        controls.append(Gtk.Label(label="Speed"))
+        length_label = Gtk.Label(label="Length")
+        length_label.set_tooltip_text("Higher is slower (Piper length scale)")
+        controls.append(length_label)
         controls.append(self._speed)
         controls.append(self._next_speaker)
         controls.append(self._play)
@@ -311,9 +314,17 @@ class SynTalkWindow(Adw.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     def _on_save(self, _button) -> None:
+        # self._saving guards the same race the design note on _busy
+        # describes for playback: without it, a save that takes ~15s looks
+        # like a missed click, the user clicks Save again, picks the same
+        # path, and two ffmpeg -y processes race on one file.
+        if self._saving:
+            return
         voice = self._selected_voice()
         if voice is None or not self._text().strip():
             return
+        self._saving = True
+        self._save_button.set_sensitive(False)
         dialog = Gtk.FileDialog(initial_name="syntalk.wav")
         dialog.save(self, None, self._on_save_chosen)
 
@@ -321,21 +332,32 @@ class SynTalkWindow(Adw.ApplicationWindow):
         try:
             gfile = dialog.save_finish(result)
         except GLib.Error:
+            self._saving = False
+            self._save_button.set_sensitive(True)
             return  # user cancelled
         if gfile is None:
+            self._saving = False
+            self._save_button.set_sensitive(True)
             return
         # Read every widget here, on the main loop. The worker must not touch GTK.
         voice = self._selected_voice()
         if voice is None:
+            self._saving = False
+            self._save_button.set_sensitive(True)
             return
+        path = gfile.get_path()
         args = (
-            gfile.get_path(),
+            path,
             voice,
             self._text(),
             self._selected_effect(),
             self._speed.get_value(),
             int(self._speaker_row.get_value()) if voice.is_multi_speaker else None,
         )
+        # Feedback at the START of the save is what the double-click bug is
+        # missing: the absent "something is happening" cue is exactly what
+        # makes a slow save look like a missed click.
+        self._toast(f"Saving {path}…")
         threading.Thread(target=self._save_worker, args=args, daemon=True).start()
 
     def _save_worker(self, path, voice, text, effect, length_scale,
@@ -349,9 +371,15 @@ class SynTalkWindow(Adw.ApplicationWindow):
                      if effect is not None else None)
             self._engine.save_wav(pcm, voice.sample_rate, path, chain=chain)
         except Exception as exc:  # noqa: BLE001 - surfaced as a toast
-            GLib.idle_add(self._toast, f"could not save: {exc}")
+            GLib.idle_add(self._save_finished, f"could not save: {exc}")
             return
-        GLib.idle_add(self._toast, f"Saved {path}")
+        GLib.idle_add(self._save_finished, f"Saved {path}")
+
+    def _save_finished(self, message: str) -> bool:
+        self._saving = False
+        self._save_button.set_sensitive(True)
+        self._toast(message)
+        return GLib.SOURCE_REMOVE
 
 
 class SynTalkApp(Adw.Application):

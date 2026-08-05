@@ -293,8 +293,10 @@ Re-running overwrites cleanly. An `uninstall.sh` removes the two installed files
 1. Launch, confirm all 8 voices listed with correct languages.
 2. Type, press Play, hear audio on the default voice.
 3. Select VCTK, confirm the speaker spinner appears and is capped at 108; play speaker 42.
-4. Select the `demon` effect, confirm the sidebar jumps to Lessac and speed to 1.25, play.
-5. Select `yoda`, confirm sidebar jumps to Alan and the spoken word order is rearranged.
+4. Select the `demon` effect, confirm the sidebar selection is unchanged and the length
+   slider moves to 1.25, play.
+5. Select `yoda`, confirm the sidebar selection is still unchanged and the spoken word
+   order is rearranged.
 6. Press Play on long text, then Stop mid-utterance; audio ceases immediately.
 7. Save WAV with an effect applied; play the file back and confirm the effect is present.
 8. Launch from the GNOME overview by searching "SynTalk"; confirm the icon renders.
