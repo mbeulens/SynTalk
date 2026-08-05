@@ -1487,6 +1487,15 @@ git push origin dev
 
 ---
 
+> **Task 4 amended after implementation (2026-08-06).** The owner used the app and
+> reported that changing the effect discarded their voice selection. Effects no longer
+> touch the sidebar selection — they apply their filter chain to whatever voice is
+> selected, and set only the speed. A "Next speaker" button was added for multi-speaker
+> voices (advance with wraparound, then play). The review's Critical finding — that
+> `Ctrl+Return` bypassed the button-sensitivity guard and could start concurrent
+> playbacks — is fixed with an explicit `_busy` flag. See spec §3.4, which is the
+> authority for this behaviour.
+
 ### Task 5: Desktop launcher, icon and install script
 
 **Files:**
