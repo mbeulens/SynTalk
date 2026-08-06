@@ -1,6 +1,6 @@
 # SynTalk
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
@@ -93,9 +93,25 @@ The version is kept in step across four files — `VERSION`, this README's
 
 ## Known limitations
 
-- Synthesis is not streamed. The whole utterance is generated before playback starts,
-  so a page of text means roughly 30 seconds of silence first, and playback cannot be
-  cancelled until it begins. Budget about 2.65 MB of memory per minute of audio.
 - No CLI yet. `voices.py`, `effects.py`, `engine.py` and `commandline.py` are
   deliberately GTK-free so adding one stays cheap.
 - Voice cloning is out of scope — it needs a different model class entirely.
+- Saving to WAV (`Engine.save_wav`) still buffers the whole utterance before writing —
+  nothing is waiting to hear a file being written, so this is unaffected by streaming
+  playback. Only the Play path streams.
+- **Streaming granularity is one sentence, and Piper decides where sentences are.**
+  Normally punctuated prose starts playing in about a third of a second no matter how
+  long it is, and Stop interrupts within a sentence. But Piper only splits where espeak
+  sees a sentence boundary — which needs a capital letter after the full stop, or a line
+  break. Text that is all lower case, or one long unpunctuated run, is synthesised as a
+  single chunk, so it behaves as it did before streaming: silence until it is ready, and
+  Stop cannot interrupt it. Measured on this machine with `en_US-lessac-high`:
+
+  | Text (~400 words) | Chunks | First audio |
+  |---|---|---|
+  | Capitalised sentences | 25 | 0.39 s |
+  | Same sentence repeated, lower case | 1 | 14.8 s |
+  | Newline-separated lines | 45 | 0.34 s |
+  | 300 words, no punctuation | 1 | 6.9 s |
+
+  If you paste text that starts slowly, adding line breaks between sentences fixes it.

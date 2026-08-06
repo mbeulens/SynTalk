@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] — 2026-08-07
+
+Streaming playback. Long text now starts speaking almost immediately instead of after
+the whole utterance is generated, and Stop interrupts the synthesis itself.
+
+Released as one entry: 0.2.1 through 0.2.3 existed only on `dev` and never shipped.
+
+### Added
+
+- **Streaming playback.** `Engine.speak()` supersedes buffered `synthesize()` +
+  `play()` on the Play path. It validates the text and speaker id and loads the model
+  first — so a bad speaker id or a failed model load still raises before any audio
+  starts — then spawns the `aplay` (and, with an effect, `ffmpeg`) pipeline immediately
+  and streams each chunk into it as Piper produces it. Measured on ~400 words of
+  ordinary prose: **16.6 s of silence before, 0.39 s after.** Memory no longer scales
+  with utterance length.
+- **Stop interrupts synthesis, not just playback.** `Playback` gains a cancel flag
+  checked between chunks. Stopping a long utterance now abandons the remaining
+  generation instead of finishing it in the background — measured at ~15 s of CPU work
+  abandoned on a 400-word text.
+- **Mid-stream synthesis failures are surfaced.** `Playback.error` records an
+  `EngineError` raised partway through streaming; the GUI toasts and logs it once
+  `wait()` returns, instead of the feeder thread dying silently after partial audio.
+- Regression tests asserting `stop()` returns well under its 10 s bound on both the
+  one-process and two-process pipelines, feeding audio faster than real-time playback
+  drains it so the pipe is genuinely busy while stopping.
+
+### Fixed
+
+- **`stop()` rode the full 10 s grace period and SIGKILLed on every Stop.** `aplay`
+  does not react promptly to `SIGTERM` while its stdin is still open and being written
+  to, so the bound intended as an unreachable wedged-device backstop had become the
+  normal path — leaving the Play button disabled for 10 s after every Stop, or up to
+  20 s with an effect. `Playback` now holds the pipeline's sink and closes it *before*
+  terminating, handing the reader EOF so it exits on its own. Measured after the fix:
+  **0.21 s** (aplay only) and **0.01 s** (ffmpeg into aplay). `wait()` is unaffected
+  and stays unbounded.
+- The empty-state "no voices installed" screen builds its download command from
+  `sys.executable` rather than a hardcoded `.venv/bin/python`, so it works when SynTalk
+  is launched from the GNOME overview, where the working directory is `$HOME`.
+- `VERSION` restored to ending with a trailing newline.
+
+### Changed
+
+- `synthesize()` and `play()` remain for the Save-to-WAV path and for callers holding
+  PCM already; both now share pipeline-spawning code with `speak()`.
+
+### Known limitation, measured
+
+Streaming granularity is one Piper chunk, and Piper splits only where espeak sees a
+sentence boundary — which needs a capital letter after the full stop, or a line break.
+Ordinary prose streams as intended. All-lower-case or unpunctuated text is synthesised
+as a single chunk and behaves as it did before streaming: silence until ready, and Stop
+cannot interrupt it. Measured with `en_US-lessac-high` on ~400 words:
+
+| Text | Chunks | First audio |
+|---|---|---|
+| Capitalised sentences | 25 | 0.39 s |
+| Same sentence repeated, lower case | 1 | 14.8 s |
+| Newline-separated lines | 45 | 0.34 s |
+| 300 words, no punctuation | 1 | 6.9 s |
+
+This is a property of Piper's sentence splitting, not of SynTalk. Documented rather
+than worked around: pre-splitting text ourselves would mis-split abbreviations like
+"Dr. Smith" into unnatural pauses. Adding line breaks between sentences fixes it.
+
+---
+
 ## [0.2.0] — 2026-08-06
 
 First feature-complete release. SynTalk replaces the `say` and `sayfx` bash

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 
@@ -47,6 +48,14 @@ class SynTalkWindow(Adw.ApplicationWindow):
     # ---------------------------------------------------------------- layout
 
     def _build_empty_state(self) -> Gtk.Widget:
+        # sys.executable is the absolute path of the interpreter actually
+        # running this app, so the command works regardless of the working
+        # directory it was launched from (e.g. the GNOME overview, whose
+        # cwd is $HOME, not the project root).
+        download_command = (
+            f"{sys.executable} -m piper.download_voices "
+            "--data-dir ~/.local/share/piper-voices en_US-lessac-high"
+        )
         page = Adw.StatusPage(
             icon_name="audio-speakers-symbolic",
             title="No voices installed",
@@ -54,8 +63,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
                 "SynTalk looks for Piper voice models in\n"
                 "~/.local/share/piper-voices\n\n"
                 "Download one with:\n"
-                ".venv/bin/python -m piper.download_voices "
-                "--data-dir ~/.local/share/piper-voices en_US-lessac-high"
+                + download_command
             ),
         )
         view = Adw.ToolbarView()
@@ -343,14 +351,16 @@ class SynTalkWindow(Adw.ApplicationWindow):
         try:
             if effect is not None:
                 spoken_text = apply_text_rewrite(effect, text)
-            pcm = self._engine.synthesize(
-                voice, spoken_text, length_scale=length_scale, speaker_id=speaker_id)
             chain = (filter_chain(effect, voice.sample_rate)
                      if effect is not None else None)
+            # Every input to the command is known before speaking starts,
+            # so log it immediately rather than waiting on synthesis.
             command = play_command(
                 voice, spoken_text, length_scale=length_scale,
                 speaker_id=speaker_id, chain=chain)
-            playback = self._engine.play(pcm, voice.sample_rate, chain=chain)
+            playback = self._engine.speak(
+                voice, spoken_text, length_scale=length_scale,
+                speaker_id=speaker_id, chain=chain)
         except EngineError as exc:
             self._log(self._format_log_entry(
                 action, voice, text, effect, error=str(exc)))
@@ -366,7 +376,13 @@ class SynTalkWindow(Adw.ApplicationWindow):
             action, voice, spoken_text, effect, command=command))
         GLib.idle_add(self._playback_started, playback)
         playback.wait()
-        GLib.idle_add(self._playback_finished)
+        if playback.error is not None:
+            message = str(playback.error)
+            self._log(self._format_log_entry(
+                action, voice, spoken_text, effect, error=message))
+            GLib.idle_add(self._playback_failed, message)
+        else:
+            GLib.idle_add(self._playback_finished)
 
     def _set_play_button(self, label: str, icon_name: str) -> None:
         self._play.set_child(Adw.ButtonContent(label=label, icon_name=icon_name))

@@ -145,6 +145,34 @@ class Engine:
     def save_wav(self, pcm, sample_rate, path, *, chain=None) -> None
 ```
 
+**Streaming playback (added 2026-08-06, v0.2.1).** `synthesize()` accumulates the whole
+utterance before a single sample plays, so a page of text meant ~30 s of silence that
+could not be cancelled. `speak()` supersedes it for the playback path:
+
+```python
+def speak(self, voice, text, *, length_scale=1.0, speaker_id=None,
+          chain=None) -> Playback
+```
+
+- Validates the text and `speaker_id`, and loads the model, **before** spawning
+  anything — so an invalid speaker id or a failed model load still raises `EngineError`
+  before any audio starts, exactly as before.
+- Spawns the `aplay` (and optional `ffmpeg`) pipeline immediately, using
+  `voice.sample_rate`, which is known up front from the `.json`.
+- A feeder thread iterates `model.synthesize(...)` and writes each
+  `chunk.audio_int16_bytes` to the sink as it is produced. Audio starts after the first
+  chunk rather than the last.
+- `Playback` gains a `threading.Event` cancel flag, checked between chunks and set by
+  `stop()` — **Stop now interrupts synthesis**, not just playback. It also gains
+  `error: EngineError | None`, recording a failure raised mid-stream so the GUI can
+  toast it after `wait()` returns. `wait()` joins the feeder before reaping, so `error`
+  is always settled by the time it returns.
+- Memory no longer scales with utterance length; only the in-flight chunk is held.
+
+`synthesize()` remains, buffered, for Save — nothing is waiting to hear a file being
+written — and `play()` remains for callers that already hold PCM, both sharing the
+pipeline-spawning helper with `speak()`.
+
 - Models are cached in a `dict[Path, PiperVoice]`. A voice is loaded once per process;
   repeat utterances skip the load.
 - `synthesize` concatenates `chunk.audio_int16_bytes` from `voice.synthesize()` into a
