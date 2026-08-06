@@ -1,9 +1,23 @@
 # SynTalk
 
-**Version:** 0.1.10
+**Version:** 0.2.0
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
+
+Built on [Piper](https://github.com/OHF-Voice/piper1-gpl) for synthesis and `ffmpeg`
+for the character effects. See [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+```
+┌─ Voices ──────────┬─ SynTalk ──────────────────── [Save WAV] ─┐
+│ ● Lessac    US    │  Speaker  [ 42 ]   (multi-speaker only)   │
+│   Alan      GB    │  ┌────────────────────────────────────┐   │
+│   Cori      GB    │  │  type anything here…               │   │
+│   VCTK      GB ¹⁰⁹│  └────────────────────────────────────┘   │
+│   L2Arctic  US ²⁴ │  Effect [None ▾] Length ─●─ [⏭][▶ Play]  │
+│   Nathalie  BE    │  ▸ Log                                    │
+└───────────────────┴───────────────────────────────────────────┘
+```
 
 ## Requirements
 
@@ -71,4 +85,17 @@ module that touches `gi` — that boundary keeps a future CLI cheap.
 ## Versioning
 
 Semantic versioning. Patch version increments on every commit to `dev`.
-Minor and major bumps are merged from `dev` into `master`.
+Minor and major bumps are merged from `dev` into `master` and recorded in
+[CHANGELOG.md](CHANGELOG.md).
+
+The version is kept in step across four files — `VERSION`, this README's
+`**Version:**` line, `pyproject.toml`, and `src/syntalk/__init__.py`.
+
+## Known limitations
+
+- Synthesis is not streamed. The whole utterance is generated before playback starts,
+  so a page of text means roughly 30 seconds of silence first, and playback cannot be
+  cancelled until it begins. Budget about 2.65 MB of memory per minute of audio.
+- No CLI yet. `voices.py`, `effects.py`, `engine.py` and `commandline.py` are
+  deliberately GTK-free so adding one stays cheap.
+- Voice cloning is out of scope — it needs a different model class entirely.
