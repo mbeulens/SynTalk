@@ -1,0 +1,25 @@
+[project]
+name = "syntalk"
+version = "0.2.0"
+description = "Local neural text-to-speech with a GTK 4 interface"
+requires-python = ">=3.12"
+dependencies = ["piper-tts>=1.6,<2"]
+
+# NOTE: PyGObject is deliberately absent. It is provided by the system
+# (python3-gi) and the venv must be created with --system-site-packages.
+
+[project.scripts]
+syntalk = "syntalk.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/syntalk"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
