@@ -54,6 +54,22 @@ class _FailingModel:
         raise RuntimeError("boom")
 
 
+class _FastModel:
+    """Fake model that supplies audio far faster than real-time playback
+    can drain it -- the same conditions a real, warm-cache synthesis burst
+    produces. Used to reproduce the aplay-ignores-SIGTERM-while-fed
+    regression: with chunks arriving this fast, the OS pipe fills and
+    aplay stays continuously busy rather than idle-blocked on read()."""
+
+    def __init__(self, chunk_count: int, chunk_bytes: bytes) -> None:
+        self.chunk_count = chunk_count
+        self.chunk_bytes = chunk_bytes
+
+    def synthesize(self, text, syn_config=None):
+        for _ in range(self.chunk_count):
+            yield _Chunk(self.chunk_bytes)
+
+
 def test_blank_text_synthesizes_nothing():
     assert Engine().synthesize(_voice(), "   \n\t ") == b""
 
@@ -199,6 +215,63 @@ def test_stop_cancels_synthesis_before_completion():
     elapsed = time.monotonic() - started
 
     assert elapsed < 2.0, f"stop() took {elapsed:.1f}s to return"
+    for proc in playback._procs:
+        assert proc.poll() is not None, "process still alive after stop()"
+
+
+def test_stop_returns_promptly_under_a_continuously_fed_pipe():
+    """Regression for the bug where stop() took the full 10s grace period
+    (then SIGKILLed aplay) on every Stop: aplay does not react to SIGTERM
+    promptly while its stdin is still open and being written to. Feed audio
+    far faster than real-time playback can drain it -- the same conditions
+    a warm-cache synthesis burst produces -- so the pipe fills and aplay
+    stays continuously busy rather than idle-blocked on read(). Assert
+    against the 10s bound itself (a 2s ceiling gives ample margin), not
+    against how long the uninterrupted synthesis would have taken -- that
+    is exactly the assertion that let this regression through unnoticed."""
+    if shutil.which("aplay") is None:
+        pytest.skip("aplay not installed")
+
+    voice = _voice()
+    engine = Engine()
+    three_seconds_of_audio = b"\x00\x00" * voice.sample_rate * 3
+    engine._cache[voice.model_path] = _FastModel(
+        chunk_count=20, chunk_bytes=three_seconds_of_audio)
+
+    playback = engine.speak(voice, "word " * 400)
+    time.sleep(1.0)  # let the pipe actually fill and aplay get busy
+
+    started = time.monotonic()
+    playback.stop()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0, f"stop() took {elapsed:.2f}s to return"
+    for proc in playback._procs:
+        assert proc.poll() is not None, "process still alive after stop()"
+
+
+def test_stop_returns_promptly_with_an_effect_chain():
+    """Same regression, but with the two-process ffmpeg-to-aplay pipeline
+    an effect uses -- the worse case, since both processes must exit."""
+    if shutil.which("aplay") is None:
+        pytest.skip("aplay not installed")
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+
+    voice = _voice()
+    engine = Engine()
+    three_seconds_of_audio = b"\x00\x00" * voice.sample_rate * 3
+    engine._cache[voice.model_path] = _FastModel(
+        chunk_count=20, chunk_bytes=three_seconds_of_audio)
+
+    playback = engine.speak(voice, "word " * 400, chain="volume=1.0")
+    time.sleep(1.0)
+
+    started = time.monotonic()
+    playback.stop()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0, f"stop() took {elapsed:.2f}s to return"
     for proc in playback._procs:
         assert proc.poll() is not None, "process still alive after stop()"
 

@@ -111,9 +111,11 @@ class Playback:
         self,
         procs: list[subprocess.Popen],
         feeder: threading.Thread | None = None,
+        sink: IO[bytes] | None = None,
     ) -> None:
         self._procs = procs
         self._feeder = feeder
+        self._sink = sink
         self._cancel = threading.Event()
         self.error: EngineError | None = None
 
@@ -123,12 +125,26 @@ class Playback:
         # BrokenPipeError; the feeder must then see this flag already set so
         # it stops instead of pulling another chunk out of the model.
         self._cancel.set()
+        # Close the sink before terminating. aplay does not react to
+        # SIGTERM promptly while its stdin is still open and being written
+        # to -- it was hitting the full 10s grace period and needing
+        # SIGKILL on every Stop. Closing gives it EOF, and it exits on its
+        # own almost immediately. This races the feeder thread, which may
+        # be inside sink.write() right now; that write is expected to raise
+        # ValueError/BrokenPipeError/OSError, all of which the feeders
+        # already tolerate.
+        if self._sink is not None:
+            try:
+                self._sink.close()
+            except (BrokenPipeError, ValueError, OSError):
+                pass
         for proc in reversed(self._procs):
             if proc.poll() is None:
                 proc.terminate()
-        # Bound only the stop path: a wedged ALSA device must not hang the
-        # UI forever. Natural completion (wait()) must never impose this
-        # deadline -- see _reap().
+        # Bound only the stop path: a genuinely wedged ALSA device must not
+        # hang the UI forever. With the sink closed above, this should
+        # never actually be needed. Natural completion (wait()) must never
+        # impose this deadline -- see _reap().
         self._reap(timeout=10)
 
     def wait(self) -> None:
@@ -203,7 +219,7 @@ class Engine:
         procs, sink = _spawn_pipeline(sample_rate, chain)
         feeder = threading.Thread(target=_feed, args=(sink, pcm), daemon=True)
         feeder.start()
-        return Playback(procs, feeder)
+        return Playback(procs, feeder, sink)
 
     def speak(
         self,
@@ -230,7 +246,7 @@ class Engine:
         model = self._model(voice)  # raises EngineError before any subprocess exists
 
         procs, sink = _spawn_pipeline(voice.sample_rate, chain)
-        playback = Playback(procs)
+        playback = Playback(procs, sink=sink)
         feeder = threading.Thread(
             target=_feed_stream,
             args=(model, text, config, sink, playback),

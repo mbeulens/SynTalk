@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.2] — 2026-08-06
+
+### Fixed
+
+- **`Playback.stop()` closed the pipeline's `stdin` too late.** `aplay` (and, with
+  an effect chain, `ffmpeg`) does not always react promptly to `SIGTERM` while its
+  stdin is still open and being written to by the feeder thread, so `stop()` could
+  ride the full 10s grace period and fall back to `SIGKILL` on every Stop, not just
+  on a genuinely wedged device. `Playback` now holds the pipeline's sink and closes
+  it in `stop()` *before* terminating the processes: closing hands the reader EOF,
+  so it drains whatever is already buffered and exits on its own well inside the
+  10s bound. The feeder threads already tolerated `BrokenPipeError`/`ValueError`/
+  `OSError` from a write racing this close, so no feeder change was needed. The 10s
+  bound remains as the genuine wedged-device backstop; it should no longer be the
+  normal path. `wait()` is unaffected and stays unbounded.
+- `VERSION` is restored to end with a trailing newline (lost in the 0.2.1 commit).
+
+### Added
+
+- Two regression tests assert `Playback.stop()` returns well under the 10s bound
+  (a 2s ceiling) for both the aplay-only pipeline and the two-process
+  ffmpeg-into-aplay pipeline an effect uses, feeding audio faster than real-time
+  playback can drain it to keep the pipe genuinely busy while stopping.
+
+---
+
 ## [0.2.1] — 2026-08-06
 
 ### Added
