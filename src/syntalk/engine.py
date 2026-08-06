@@ -7,6 +7,7 @@ import subprocess
 import threading
 import wave
 from pathlib import Path
+from typing import IO
 
 from .voices import Voice
 
@@ -22,6 +23,53 @@ def _require(tool: str) -> str:
     return path
 
 
+def _resolve_speaker_id(voice: Voice, speaker_id: int | None) -> int | None:
+    """Shared by synthesize() and speak(): validate before anything runs."""
+    if voice.is_multi_speaker:
+        if speaker_id is None:
+            speaker_id = 0
+        if not 0 <= speaker_id < voice.num_speakers:
+            raise EngineError(
+                f"speaker id {speaker_id} out of range "
+                f"0..{voice.num_speakers - 1} for {voice.key}"
+            )
+        return speaker_id
+    return None
+
+
+def _spawn_pipeline(
+    sample_rate: int, chain: str | None
+) -> tuple[list[subprocess.Popen], IO[bytes]]:
+    """Start aplay (and ffmpeg, if an effect chain is set) and return the
+    live processes plus the pipe to write raw PCM into. Shared by play()
+    and speak() so the two pipelines can never drift apart."""
+    aplay = _require("aplay")
+
+    if chain:
+        ffmpeg = _require("ffmpeg")
+        converter = subprocess.Popen(
+            [ffmpeg, "-v", "error",
+             "-f", "s16le", "-ar", str(sample_rate), "-ac", "1", "-i", "-",
+             "-af", chain, "-f", "wav", "-"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+        player = subprocess.Popen([aplay, "-q", "-"], stdin=converter.stdout)
+        converter.stdout.close()  # only ffmpeg holds the write end now
+        procs = [converter, player]
+        sink = converter.stdin
+    else:
+        player = subprocess.Popen(
+            [aplay, "-q", "-r", str(sample_rate),
+             "-f", "S16_LE", "-t", "raw", "-"],
+            stdin=subprocess.PIPE,
+        )
+        procs = [player]
+        sink = player.stdin
+
+    return procs, sink
+
+
 def _feed(sink, pcm: bytes) -> None:
     try:
         sink.write(pcm)
@@ -34,13 +82,47 @@ def _feed(sink, pcm: bytes) -> None:
             pass
 
 
+def _feed_stream(model, text: str, config, sink, playback: "Playback") -> None:
+    """Feeder thread body for speak(): pull chunks from the model as they
+    are produced and write each one immediately, so playback starts after
+    the first chunk instead of the last. Always closes the sink on the way
+    out, by any path, so the reader sees EOF and terminates."""
+    try:
+        for chunk in model.synthesize(text, syn_config=config):
+            if playback._cancel.is_set():
+                break
+            try:
+                sink.write(chunk.audio_int16_bytes)
+            except (BrokenPipeError, ValueError, OSError):
+                break  # reader terminated (Stop); normal path, not an error
+    except Exception as exc:  # noqa: BLE001 - surfaced via Playback.error
+        playback.error = EngineError(f"synthesis failed: {exc}")
+    finally:
+        try:
+            sink.close()
+        except (BrokenPipeError, OSError):
+            pass
+
+
 class Playback:
     """Handle on a running audio pipeline."""
 
-    def __init__(self, procs: list[subprocess.Popen]) -> None:
+    def __init__(
+        self,
+        procs: list[subprocess.Popen],
+        feeder: threading.Thread | None = None,
+    ) -> None:
         self._procs = procs
+        self._feeder = feeder
+        self._cancel = threading.Event()
+        self.error: EngineError | None = None
 
     def stop(self) -> None:
+        # Set the cancel flag FIRST. If the feeder thread is blocked writing
+        # into a full pipe, terminating the reader below unblocks it with a
+        # BrokenPipeError; the feeder must then see this flag already set so
+        # it stops instead of pulling another chunk out of the model.
+        self._cancel.set()
         for proc in reversed(self._procs):
             if proc.poll() is None:
                 proc.terminate()
@@ -52,6 +134,10 @@ class Playback:
     def wait(self) -> None:
         """Block until playback finishes on its own. No deadline: audio
         longer than any fixed timeout must still play to completion."""
+        # Join the feeder before reaping so `error` is always settled by
+        # the time wait() returns.
+        if self._feeder is not None:
+            self._feeder.join()
         self._reap()
 
     def _reap(self, timeout: float | None = None) -> None:
@@ -92,16 +178,7 @@ class Engine:
         if not text.strip():
             return b""
 
-        if voice.is_multi_speaker:
-            if speaker_id is None:
-                speaker_id = 0
-            if not 0 <= speaker_id < voice.num_speakers:
-                raise EngineError(
-                    f"speaker id {speaker_id} out of range "
-                    f"0..{voice.num_speakers - 1} for {voice.key}"
-                )
-        else:
-            speaker_id = None
+        speaker_id = _resolve_speaker_id(voice, speaker_id)
 
         from piper import SynthesisConfig
 
@@ -123,32 +200,45 @@ class Engine:
         if not pcm:
             return Playback([])
 
-        aplay = _require("aplay")
+        procs, sink = _spawn_pipeline(sample_rate, chain)
+        feeder = threading.Thread(target=_feed, args=(sink, pcm), daemon=True)
+        feeder.start()
+        return Playback(procs, feeder)
 
-        if chain:
-            ffmpeg = _require("ffmpeg")
-            converter = subprocess.Popen(
-                [ffmpeg, "-v", "error",
-                 "-f", "s16le", "-ar", str(sample_rate), "-ac", "1", "-i", "-",
-                 "-af", chain, "-f", "wav", "-"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-            )
-            player = subprocess.Popen([aplay, "-q", "-"], stdin=converter.stdout)
-            converter.stdout.close()  # only ffmpeg holds the write end now
-            procs = [converter, player]
-            sink = converter.stdin
-        else:
-            player = subprocess.Popen(
-                [aplay, "-q", "-r", str(sample_rate),
-                 "-f", "S16_LE", "-t", "raw", "-"],
-                stdin=subprocess.PIPE,
-            )
-            procs = [player]
-            sink = player.stdin
+    def speak(
+        self,
+        voice: Voice,
+        text: str,
+        *,
+        length_scale: float = 1.0,
+        speaker_id: int | None = None,
+        chain: str | None = None,
+    ) -> Playback:
+        """Streaming counterpart to synthesize() + play(): validates and
+        loads the model first (so a bad speaker id or a failed model load
+        still raises EngineError before any audio starts), then spawns the
+        playback pipeline immediately and streams synthesis chunks into it
+        as they are produced, instead of buffering the whole utterance."""
+        if not text.strip():
+            return Playback([])
 
-        threading.Thread(target=_feed, args=(sink, pcm), daemon=True).start()
-        return Playback(procs)
+        speaker_id = _resolve_speaker_id(voice, speaker_id)
+
+        from piper import SynthesisConfig
+
+        config = SynthesisConfig(speaker_id=speaker_id, length_scale=length_scale)
+        model = self._model(voice)  # raises EngineError before any subprocess exists
+
+        procs, sink = _spawn_pipeline(voice.sample_rate, chain)
+        playback = Playback(procs)
+        feeder = threading.Thread(
+            target=_feed_stream,
+            args=(model, text, config, sink, playback),
+            daemon=True,
+        )
+        playback._feeder = feeder
+        feeder.start()
+        return playback
 
     def save_wav(
         self,

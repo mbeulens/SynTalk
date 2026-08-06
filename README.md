@@ -1,6 +1,6 @@
 # SynTalk
 
-**Version:** 0.2.0
+**Version:** 0.2.1
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
@@ -93,9 +93,9 @@ The version is kept in step across four files — `VERSION`, this README's
 
 ## Known limitations
 
-- Synthesis is not streamed. The whole utterance is generated before playback starts,
-  so a page of text means roughly 30 seconds of silence first, and playback cannot be
-  cancelled until it begins. Budget about 2.65 MB of memory per minute of audio.
 - No CLI yet. `voices.py`, `effects.py`, `engine.py` and `commandline.py` are
   deliberately GTK-free so adding one stays cheap.
 - Voice cloning is out of scope — it needs a different model class entirely.
+- Saving to WAV (`Engine.save_wav`) still buffers the whole utterance before writing —
+  nothing is waiting to hear a file being written, so this is unaffected by streaming
+  playback. Only the Play path streams.

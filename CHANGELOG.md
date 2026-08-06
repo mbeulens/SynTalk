@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] — 2026-08-06
+
+### Added
+
+- **Streaming playback.** `Engine.speak()` supersedes buffered `synthesize()` +
+  `play()` on the Play path: it validates the text and speaker id and loads the model
+  first (so a bad speaker id or a failed model load still raises before any audio
+  starts), then spawns the `aplay` (and, with an effect, `ffmpeg`) pipeline immediately
+  and streams each synthesis chunk into it as Piper produces it. A page of text now
+  starts playing after the first chunk instead of after the whole utterance is
+  generated, and memory no longer scales with utterance length.
+- **Stop now interrupts synthesis, not just playback.** `Playback` gains a cancel
+  flag checked between chunks; `stop()` sets it before terminating the pipeline, so a
+  long utterance stops promptly instead of finishing generation in the background.
+- **Mid-stream synthesis failures are surfaced.** `Playback.error` records an
+  `EngineError` raised partway through streaming; the GUI toasts it and logs the
+  failure once `wait()` returns, instead of failing silently on the feeder thread.
+
+### Fixed
+
+- The empty-state "no voices installed" screen now builds its download command from
+  `sys.executable` instead of a hardcoded `.venv/bin/python`, so the command works
+  when SynTalk is launched from the GNOME overview (working directory `$HOME`), not
+  just from the project root.
+
+### Changed
+
+- `synthesize()` and `play()` remain, unchanged, for the Save-to-WAV path and for
+  callers that already hold PCM; both now share pipeline-spawning code with `speak()`.
+
+---
+
 ## [0.2.0] — 2026-08-06
 
 First feature-complete release. SynTalk replaces the `say` and `sayfx` bash
