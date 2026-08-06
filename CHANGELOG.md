@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+### Known limitation, measured
+
+Streaming granularity is one Piper chunk, and Piper splits only where espeak sees a
+sentence boundary — which requires a capital letter after the full stop, or a line
+break. Normally punctuated prose starts in ~0.39 s regardless of length and Stop
+interrupts within a sentence. All-lower-case or unpunctuated text is synthesised as a
+single chunk and behaves as it did before streaming: silence until ready, and Stop
+cannot interrupt it. This is a property of Piper's sentence splitting, not of SynTalk;
+it is documented rather than worked around, because pre-splitting text ourselves would
+mis-split abbreviations like "Dr. Smith" into unnatural pauses.
+
 ## [0.2.1] — 2026-08-06
 
 ### Added
