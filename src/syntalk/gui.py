@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import gi
 
@@ -11,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
+from .commandline import play_command, save_command  # noqa: E402
 from .effects import EFFECTS, apply_text_rewrite, filter_chain  # noqa: E402
 from .engine import Engine, EngineError  # noqa: E402
 from .voices import Voice, discover  # noqa: E402
@@ -151,6 +153,7 @@ class SynTalkWindow(Adw.ApplicationWindow):
         body.append(self._speaker_group)
         body.append(scroller)
         body.append(controls)
+        body.append(self._build_log_pane())
 
         view = Adw.ToolbarView()
         view.add_top_bar(header)
@@ -164,6 +167,41 @@ class SynTalkWindow(Adw.ApplicationWindow):
         self.add_controller(shortcut)
 
         return Adw.NavigationPage(child=view, title="SynTalk")
+
+    def _build_log_pane(self) -> Gtk.Widget:
+        """Collapsible session log: every play/save and its equivalent
+        shell command, plus failures. Collapsed by default so it never
+        disturbs the layout above."""
+        self._log_buffer = Gtk.TextBuffer()
+        self._log_view = Gtk.TextView(
+            buffer=self._log_buffer,
+            editable=False,
+            cursor_visible=False,
+            monospace=True,
+            wrap_mode=Gtk.WrapMode.WORD_CHAR,
+            top_margin=6, bottom_margin=6, left_margin=6, right_margin=6,
+        )
+        log_scroller = Gtk.ScrolledWindow(child=self._log_view)
+        log_scroller.set_min_content_height(150)
+        log_scroller.set_vexpand(False)
+
+        copy_button = Gtk.Button(label="Copy")
+        copy_button.connect("clicked", self._on_log_copy)
+        clear_button = Gtk.Button(label="Clear")
+        clear_button.connect("clicked", self._on_log_clear)
+
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        toolbar.append(copy_button)
+        toolbar.append(clear_button)
+
+        log_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        log_box.append(toolbar)
+        log_box.append(log_scroller)
+
+        self._log_expander = Gtk.Expander(label="Log")
+        self._log_expander.set_child(log_box)
+        self._log_expander.set_expanded(False)
+        return self._log_expander
 
     # ----------------------------------------------------------------- state
 
@@ -206,6 +244,41 @@ class SynTalkWindow(Adw.ApplicationWindow):
     def _toast(self, message: str) -> None:
         self._toasts.add_toast(Adw.Toast(title=message, timeout=5))
 
+    # ------------------------------------------------------------------- log
+
+    def _format_log_entry(self, action: str, voice: Voice, text: str,
+                          effect, *, command: str | None = None,
+                          error: str | None = None) -> str:
+        timestamp = time.strftime("%H:%M:%S")
+        effect_name = effect.name if effect is not None else "none"
+        lines = [f"[{timestamp}] {action} · {voice.key} · {effect_name}",
+                 f"  text: {text}"]
+        if command is not None:
+            lines.append(f"  $ {command}")
+        if error is not None:
+            lines.append(f"  ! {error}")
+        return "\n".join(lines) + "\n"
+
+    def _log(self, entry: str) -> None:
+        # Callable from a worker thread: GLib.idle_add is thread-safe and
+        # merely schedules the real insert on the main loop below. The
+        # worker itself never touches self._log_buffer directly.
+        GLib.idle_add(self._append_log_entry, entry)
+
+    def _append_log_entry(self, entry: str) -> bool:
+        self._log_buffer.insert(self._log_buffer.get_end_iter(), entry)
+        end = self._log_buffer.get_end_iter()
+        self._log_view.scroll_to_iter(end, 0.0, False, 0.0, 0.0)
+        return GLib.SOURCE_REMOVE
+
+    def _on_log_copy(self, _button) -> None:
+        start, end = self._log_buffer.get_bounds()
+        text = self._log_buffer.get_text(start, end, False)
+        self.get_clipboard().set(text)
+
+    def _on_log_clear(self, _button) -> None:
+        self._log_buffer.set_text("", -1)
+
     # --------------------------------------------------------------- actions
 
     def _on_shortcut_play(self, *_args) -> bool:
@@ -239,9 +312,9 @@ class SynTalkWindow(Adw.ApplicationWindow):
             return
         next_id = (int(self._speaker_row.get_value()) + 1) % voice.num_speakers
         self._speaker_row.set_value(next_id)
-        self._start_playback()
+        self._start_playback(action="next-speaker")
 
-    def _start_playback(self) -> None:
+    def _start_playback(self, *, action: str = "play") -> None:
         """Gather every widget value on the main loop, mark busy, and hand
         off to a worker thread. Shared by Play and Next-speaker so the two
         entry points can never diverge."""
@@ -259,26 +332,38 @@ class SynTalkWindow(Adw.ApplicationWindow):
         self._next_speaker.set_sensitive(False)
         threading.Thread(
             target=self._play_worker,
-            args=(voice, text, self._speed.get_value(), speaker_id, effect),
+            args=(voice, text, self._speed.get_value(), speaker_id, effect,
+                  action),
             daemon=True,
         ).start()
 
-    def _play_worker(self, voice, text, length_scale, speaker_id, effect) -> None:
+    def _play_worker(self, voice, text, length_scale, speaker_id, effect,
+                     action="play") -> None:
+        spoken_text = text
         try:
             if effect is not None:
-                text = apply_text_rewrite(effect, text)
+                spoken_text = apply_text_rewrite(effect, text)
             pcm = self._engine.synthesize(
-                voice, text, length_scale=length_scale, speaker_id=speaker_id)
+                voice, spoken_text, length_scale=length_scale, speaker_id=speaker_id)
             chain = (filter_chain(effect, voice.sample_rate)
                      if effect is not None else None)
+            command = play_command(
+                voice, spoken_text, length_scale=length_scale,
+                speaker_id=speaker_id, chain=chain)
             playback = self._engine.play(pcm, voice.sample_rate, chain=chain)
         except EngineError as exc:
+            self._log(self._format_log_entry(
+                action, voice, text, effect, error=str(exc)))
             GLib.idle_add(self._playback_failed, str(exc))
             return
         except Exception as exc:  # noqa: BLE001 - never kill the worker silently
+            self._log(self._format_log_entry(
+                action, voice, text, effect, error=f"unexpected error: {exc}"))
             GLib.idle_add(self._playback_failed, f"unexpected error: {exc}")
             return
 
+        self._log(self._format_log_entry(
+            action, voice, spoken_text, effect, command=command))
         GLib.idle_add(self._playback_started, playback)
         playback.wait()
         GLib.idle_add(self._playback_finished)
@@ -362,17 +447,25 @@ class SynTalkWindow(Adw.ApplicationWindow):
 
     def _save_worker(self, path, voice, text, effect, length_scale,
                      speaker_id) -> None:
+        spoken_text = text
         try:
             if effect is not None:
-                text = apply_text_rewrite(effect, text)
+                spoken_text = apply_text_rewrite(effect, text)
             pcm = self._engine.synthesize(
-                voice, text, length_scale=length_scale, speaker_id=speaker_id)
+                voice, spoken_text, length_scale=length_scale, speaker_id=speaker_id)
             chain = (filter_chain(effect, voice.sample_rate)
                      if effect is not None else None)
+            command = save_command(
+                voice, spoken_text, path, length_scale=length_scale,
+                speaker_id=speaker_id, chain=chain)
             self._engine.save_wav(pcm, voice.sample_rate, path, chain=chain)
         except Exception as exc:  # noqa: BLE001 - surfaced as a toast
+            self._log(self._format_log_entry(
+                "save", voice, text, effect, error=str(exc)))
             GLib.idle_add(self._save_finished, f"could not save: {exc}")
             return
+        self._log(self._format_log_entry(
+            "save", voice, spoken_text, effect, command=command))
         GLib.idle_add(self._save_finished, f"Saved {path}")
 
     def _save_finished(self, message: str) -> bool:

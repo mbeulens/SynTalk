@@ -1,6 +1,6 @@
 # SynTalk
 
-**Version:** 0.1.9
+**Version:** 0.1.10
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
@@ -35,6 +35,12 @@ GNOME overview.
   selected, and sets the speed slider to match. It never changes the selected voice —
   change either afterwards if you like.
 - The save button in the header writes the current text to a WAV file.
+- **Log** at the bottom is a collapsible session log (collapsed by default). Every
+  play, next-speaker play and save appends a timestamped entry recording the text
+  spoken and the equivalent shell command — genuinely copy-pasteable, quoting handled
+  for you — so you can reproduce what SynTalk just did from a terminal. Failures are
+  logged too. **Copy** puts the whole log on the clipboard; **Clear** empties it. The
+  log is never truncated automatically — only Clear does that.
 
 ## Downloading more voices
 

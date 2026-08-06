@@ -1,6 +1,6 @@
 [project]
 name = "syntalk"
-version = "0.1.9"
+version = "0.1.10"
 description = "Local neural text-to-speech with a GTK 4 interface"
 requires-python = ">=3.12"
 dependencies = ["piper-tts>=1.6,<2"]
