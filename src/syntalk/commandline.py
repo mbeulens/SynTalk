@@ -12,15 +12,32 @@ could type by hand in a terminal to reproduce what SynTalk just did.
 from __future__ import annotations
 
 import shlex
+import sys
+from pathlib import Path
 
 from .voices import Voice
+
+
+def _piper_executable() -> str:
+    """The `piper` console script, as a token the user can actually run.
+
+    A bare `piper` is almost never on PATH: it is installed into the same
+    venv as SynTalk itself, so emitting the bare name produced a command
+    that failed with "Command 'piper' not found" for every venv install --
+    and Ubuntu unhelpfully suggests `apt install piper`, which is an
+    unrelated gaming-mouse configuration tool. Resolve it next to the
+    running interpreter, the same way the empty-state download hint does.
+    Fall back to the bare name for system-wide installs where PATH is right.
+    """
+    candidate = Path(sys.executable).parent / "piper"
+    return shlex.quote(str(candidate)) if candidate.exists() else "piper"
 
 
 def _piper_invocation(
     voice: Voice, length_scale: float, speaker_id: int | None
 ) -> list[str]:
     tokens = [
-        "piper",
+        _piper_executable(),
         "-m", shlex.quote(str(voice.model_path)),
         "--length-scale", str(length_scale),
     ]

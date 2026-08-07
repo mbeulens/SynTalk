@@ -4,10 +4,10 @@ from syntalk.effects import EFFECTS, apply_text_rewrite, filter_chain
 from syntalk.voices import discover
 
 
-def test_all_ten_presets_present():
+def test_all_presets_present():
     assert set(EFFECTS) == {
         "yoda", "robot", "chipmunk", "demon", "giant",
-        "ghost", "radio", "drunk", "announcer", "tiny",
+        "ghost", "radio", "drunk", "announcer", "tiny", "tars",
     }
 
 
