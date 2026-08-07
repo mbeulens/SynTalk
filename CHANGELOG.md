@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] — 2026-08-07
+
+A TARS character preset, a clipping bug that turned out to affect three presets, and
+a copy-paste command that could never actually be pasted.
+
+### Added
+
+- **`tars` character preset** (Interstellar). Deliberately the least processed preset
+  in the file: TARS reads as a person, not a machine, so there is no vibrato, flanger
+  or bit crushing. The character comes from a −6 % pitch drop, a 120–7000 Hz band limit
+  that says "reproduced through a speaker", a midrange box resonance, hard levelling,
+  and one 13 ms reflection off the hull. Base voice is
+  `en_GB-northern_english_male-medium`, chosen by ear: the deadpan of the performance
+  matters more than matching TARS's American accent, and a medium-tier model is the
+  one that stays real-time on a Raspberry Pi.
+
+### Fixed
+
+- **Three presets clipped in 16-bit.** Piper normalises its output to 0 dBFS, so any
+  EQ boost or filter overshoot clips *in place* before a downstream compressor or
+  limiter can act on it. `aformat=sample_fmts=fltp` at the head of a chain gives the
+  intermediate stages float headroom. That alone fixed `radio` (4 clipped samples → 0)
+  but made `tiny` worse (24 → 44) — float removed the accidental clamping the integer
+  path had been providing — so `tiny` also gains a limiter to catch the `highpass`
+  overshoot. **All eleven presets now render zero clipped samples.**
+- **`commandline.py` emitted a command that could not be run.** Its documented purpose
+  is producing a string the user can paste into a terminal, but it emitted a bare
+  `piper` token. Piper is installed into the same venv as SynTalk and is essentially
+  never on `PATH`, so the command failed with `Command 'piper' not found` for every
+  venv install — and Ubuntu then suggests `apt install piper`, which is an unrelated
+  gaming-mouse configuration tool. The console script is now resolved next to
+  `sys.executable`, as the empty-state download hint already does, falling back to the
+  bare name for system-wide installs where `PATH` is correct.
+- **Two ffmpeg parameter mistakes**, found while building the preset and worth
+  recording because both fail silently as "it just got quieter": `aecho`'s second
+  parameter is `out_gain`, a flat output level, not the reflection mix (the mix is the
+  trailing parameter); and `acompressor` defaults to `makeup=1`, i.e. none, so a
+  compressor without an explicit makeup gain is a pure attenuator.
+
+---
+
 ## [0.3.0] — 2026-08-07
 
 Streaming playback. Long text now starts speaking almost immediately instead of after

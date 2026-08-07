@@ -1,6 +1,6 @@
 # SynTalk
 
-**Version:** 0.3.0
+**Version:** 0.4.0
 
 Local neural text-to-speech with a GTK 4 interface. Pick a voice, type, press play.
 Everything runs offline on your own machine.
