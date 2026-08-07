@@ -1,4 +1,5 @@
 import shlex
+import sys
 from pathlib import Path
 
 from syntalk.commandline import play_command, save_command
@@ -107,3 +108,30 @@ def test_length_scale_reflected_in_both_commands():
     save = save_command(_voice(), "hi", "/tmp/o.wav", length_scale=1.45)
     assert "--length-scale 1.45" in play
     assert "--length-scale 1.45" in save
+
+
+def test_piper_token_is_an_absolute_path_when_installed_beside_the_interpreter(
+    tmp_path, monkeypatch
+):
+    """A bare `piper` is not on PATH for venv installs, so the reproduced
+    command must name the console script next to sys.executable."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "piper").touch()
+    monkeypatch.setattr(sys, "executable", str(fake_bin / "python"))
+
+    cmd = play_command(_voice(), "hi")
+
+    assert shlex.quote(str(fake_bin / "piper")) in cmd
+    assert not cmd.split("| ")[1].startswith("piper ")
+
+
+def test_piper_token_falls_back_to_bare_name_when_not_beside_the_interpreter(
+    tmp_path, monkeypatch
+):
+    """System-wide installs do have piper on PATH; do not invent a path."""
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bin" / "python"))
+
+    cmd = play_command(_voice(), "hi")
+
+    assert "| piper -m " in cmd

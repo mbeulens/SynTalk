@@ -53,6 +53,8 @@ _PRESETS = [
     ),
     Effect(
         "radio", "en_US-lessac-high", 1.0,
+        # fltp: the band limit plus volume=1.4 clipped in 16-bit without it.
+        "aformat=sample_fmts=fltp,"
         "highpass=f=500,lowpass=f=2600,acrusher=bits=10:mode=log,volume=1.4",
     ),
     Effect(
@@ -66,7 +68,39 @@ _PRESETS = [
     ),
     Effect(
         "tiny", "en_GB-cori-high", 0.95,
-        "asetrate=@SR@*1.32,aresample=@SR@,atempo=0.8,highpass=f=400",
+        # The highpass overshoots: filter ringing pushes a signal already at
+        # 0 dBFS above full scale, so it clipped on the way back to 16-bit.
+        # fltp alone made it worse -- it removed the accidental clamping the
+        # integer path was providing -- so the limiter is the actual fix.
+        "aformat=sample_fmts=fltp,"
+        "asetrate=@SR@*1.32,aresample=@SR@,atempo=0.8,highpass=f=400,"
+        "alimiter=limit=0.9",
+    ),
+    # Deliberately the least processed preset here. TARS reads as a person,
+    # not a machine -- no vibrato, flanger or bit crushing. The character
+    # comes from a small pitch drop, a band limit that says "reproduced
+    # through a speaker", a midrange box resonance, hard levelling (TARS
+    # never raises his voice), and one very short reflection off the hull.
+    # Voice picked by ear over lessac-high and alan-medium: the deadpan of the
+    # performance matters more than TARS's American accent, and a medium-tier
+    # model is the one that stays real-time on a Raspberry Pi.
+    Effect(
+        "tars", "en_GB-northern_english_male-medium", 0.88,
+        # fltp first: Piper normalises to 0 dBFS, so the EQ boosts below
+        # clip in place in 16-bit before the compressor or limiter can do
+        # anything about it. Float gives the intermediate stages headroom.
+        "aformat=sample_fmts=fltp,"
+        "asetrate=@SR@*0.94,aresample=@SR@,atempo=1.0638,"
+        "highpass=f=120,lowpass=f=7000,"
+        "equalizer=f=250:t=q:w=1.0:g=2,"
+        "equalizer=f=1150:t=q:w=1.4:g=3,"
+        # makeup is NOT optional -- acompressor defaults to makeup=1, i.e.
+        # none, so without it this stage is a pure 11 dB attenuator.
+        "acompressor=threshold=0.25:ratio=3:attack=8:release=140:makeup=2,"
+        # 0.85:0.9 are in_gain:out_gain. out_gain is a flat output level,
+        # not the reflection mix -- the mix is the trailing 0.15.
+        "aecho=0.85:0.9:13:0.15,"
+        "alimiter=limit=0.9",
     ),
 ]
 
